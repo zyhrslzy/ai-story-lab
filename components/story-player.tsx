@@ -12,8 +12,6 @@ import {
 } from "@/lib/story-session";
 import { chooseStoryPath, getStoryNode } from "@/lib/story";
 
-const subscribeToHydration = () => () => undefined;
-
 const endingLabels = {
   hopeful: "希望结局",
   bittersweet: "余味结局",
@@ -21,17 +19,17 @@ const endingLabels = {
 
 export function StoryPlayer() {
   const router = useRouter();
-  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
-  const rawSession = useSyncExternalStore(
+  const rawSession = useSyncExternalStore<string | null | undefined>(
     subscribeToBrowserStorySession,
     getBrowserStorySessionSnapshot,
-    () => null,
+    () => undefined,
   );
-  const session = parseStorySession(rawSession);
 
-  if (!hydrated) {
+  if (rawSession === undefined) {
     return <StatusCard message="正在载入故事…" />;
   }
+
+  const session = parseStorySession(rawSession);
 
   if (!session) {
     return (

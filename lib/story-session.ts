@@ -3,7 +3,7 @@ import { z } from "zod";
 import { branchStorySchema, type BranchStory } from "./story";
 
 export const STORY_SESSION_KEY = "ai-story-lab.session.v1";
-const STORY_SESSION_EVENT = "ai-story-lab:session-change";
+const browserSessionListeners = new Set<() => void>();
 
 export const storySessionSchema = z
   .object({
@@ -29,7 +29,7 @@ export interface StoryStorage {
 }
 
 export function serializeStorySession(session: StorySession): string {
-  return JSON.stringify(storySessionSchema.parse(session));
+  return JSON.stringify(session);
 }
 
 export function parseStorySession(raw: string | null): StorySession | null {
@@ -61,7 +61,7 @@ export function clearStorySession(storage: StoryStorage): void {
 }
 
 function notifyBrowserSessionChange(): void {
-  window.dispatchEvent(new Event(STORY_SESSION_EVENT));
+  browserSessionListeners.forEach((listener) => listener());
 }
 
 export function saveBrowserStorySession(
@@ -83,14 +83,9 @@ export function getBrowserStorySessionSnapshot(): string | null {
 }
 
 export function subscribeToBrowserStorySession(callback: () => void): () => void {
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === STORY_SESSION_KEY) callback();
-  };
-  window.addEventListener("storage", onStorage);
-  window.addEventListener(STORY_SESSION_EVENT, callback);
+  browserSessionListeners.add(callback);
 
   return () => {
-    window.removeEventListener("storage", onStorage);
-    window.removeEventListener(STORY_SESSION_EVENT, callback);
+    browserSessionListeners.delete(callback);
   };
 }

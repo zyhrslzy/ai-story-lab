@@ -164,10 +164,9 @@ export function chooseStoryPath(
   currentNodeId: string,
   choiceId: string,
 ): StoryNode {
-  const validatedStory = branchStorySchema.parse(story);
-  const currentNode = getStoryNode(validatedStory, currentNodeId);
+  const currentNode = getStoryNode(story, currentNodeId);
   const choice = currentNode.choices.find((candidate) => candidate.id === choiceId);
 
   if (!choice) throw new Error(`Story choice not found: ${choiceId}`);
-  return getStoryNode(validatedStory, choice.nextNodeId);
+  return getStoryNode(story, choice.nextNodeId);
 }
