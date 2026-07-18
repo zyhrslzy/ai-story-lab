@@ -1,49 +1,20 @@
-import { storyPreview } from "@/lib/story";
-
-const experienceSteps = ["进入故事", "做出两次选择", "获得专属结局"];
+import { StoryCreator } from "@/components/story-creator";
 
 export default function Home() {
   return (
-    <main className="relative flex min-h-screen items-center overflow-hidden px-6 py-16 sm:px-10">
-      <div
-        aria-hidden="true"
-        className="absolute left-1/2 top-0 h-96 w-96 -translate-x-1/2 rounded-full bg-amber-200/20 blur-3xl"
-      />
-
-      <section className="relative mx-auto w-full max-w-3xl rounded-[2rem] border border-white/10 bg-slate-950/65 p-7 shadow-2xl shadow-black/30 backdrop-blur sm:p-12">
-        <p className="mb-6 text-xs font-semibold tracking-[0.32em] text-amber-200 uppercase">
-          AI Story Lab · MVP
+    <main className="min-h-screen px-5 py-10 sm:px-8 sm:py-16">
+      <section className="mx-auto w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-950/80 p-6 shadow-xl sm:p-9">
+        <p className="text-xs font-semibold tracking-[0.24em] text-amber-200 uppercase">
+          AI Story Lab · Local Mock
         </p>
-
-        <h1 className="max-w-2xl text-4xl leading-tight font-semibold tracking-tight text-white sm:text-6xl">
-          {storyPreview.title}
+        <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+          创作一段属于你的故事
         </h1>
-
-        <p className="mt-6 max-w-xl text-base leading-8 text-slate-300 sm:text-lg">
-          {storyPreview.premise}
+        <p className="mt-4 leading-7 text-slate-400">
+          填写四项设定，本地生成一段包含两次选择和多个结局的互动故事。
         </p>
 
-        <ol className="mt-10 grid gap-3 sm:grid-cols-3">
-          {experienceSteps.map((step, index) => (
-            <li
-              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200"
-              key={step}
-            >
-              <span className="mr-2 text-amber-200">0{index + 1}</span>
-              {step}
-            </li>
-          ))}
-        </ol>
-
-        <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center">
-          <button
-            className="rounded-full bg-amber-200 px-7 py-3.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-200"
-            type="button"
-          >
-            故事正在准备中
-          </button>
-          <p className="text-sm text-slate-400">免登录 · 约 3 分钟 · 手机网页</p>
-        </div>
+        <StoryCreator />
       </section>
     </main>
   );
