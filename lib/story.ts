@@ -24,21 +24,21 @@ export const storyNodeSchema = z.object({
   endingType: endingTypeSchema.nullable(),
 });
 
-export const branchStorySchema = z
-  .object({
-    id: z.string().min(1),
-    title: z.string().min(1).max(100),
-    premise: z.string().min(1).max(300),
-    theme: z.string().min(1).max(40),
-    style: z.string().min(1).max(20),
-    protagonist: z.object({
-      name: z.string().min(1).max(20),
-      identity: z.string().min(1).max(30),
-    }),
-    startNodeId: z.string().min(1),
-    nodes: z.array(storyNodeSchema).min(3).max(7),
-  })
-  .superRefine((story, context) => {
+export const branchStoryStructureSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1).max(100),
+  premise: z.string().min(1).max(300),
+  theme: z.string().min(1).max(40),
+  style: z.string().min(1).max(20),
+  protagonist: z.object({
+    name: z.string().min(1).max(20),
+    identity: z.string().min(1).max(30),
+  }),
+  startNodeId: z.string().min(1),
+  nodes: z.array(storyNodeSchema).min(3).max(7),
+});
+
+export const branchStorySchema = branchStoryStructureSchema.superRefine((story, context) => {
     const nodeIds = new Set<string>();
 
     story.nodes.forEach((node, index) => {
@@ -148,7 +148,7 @@ export const branchStorySchema = z
         path: ["nodes"],
       });
     }
-  });
+});
 
 export type BranchStory = z.infer<typeof branchStorySchema>;
 export type StoryNode = z.infer<typeof storyNodeSchema>;

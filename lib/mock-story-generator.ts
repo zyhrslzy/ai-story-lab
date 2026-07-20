@@ -4,6 +4,13 @@ import {
   type BranchStory,
   type StoryInput,
 } from "./story";
+import type { StoryGenerator } from "./story-generator";
+
+export class MockStoryGenerator implements StoryGenerator {
+  async generate(input: StoryInput): Promise<BranchStory> {
+    return generateMockStory(input);
+  }
+}
 
 export function generateMockStory(input: StoryInput): BranchStory {
   const values = storyInputSchema.parse(input);

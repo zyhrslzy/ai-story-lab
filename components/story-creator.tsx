@@ -3,19 +3,33 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { generateMockStory } from "@/lib/mock-story-generator";
 import { saveBrowserStorySession } from "@/lib/story-session";
-import { storyInputSchema } from "@/lib/story";
+import { branchStorySchema, storyInputSchema } from "@/lib/story";
+import {
+  storyGenerationErrorResponseSchema,
+  type StoryGenerationErrorCode,
+} from "@/lib/story-generator";
 
 const fieldClassName =
   "mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-amber-300 focus:ring-2 focus:ring-amber-300/20";
 
+const errorMessageByCode: Record<StoryGenerationErrorCode, string> = {
+  INVALID_INPUT: "请检查故事设定后再试",
+  NOT_CONFIGURED: "AI 故事生成暂未配置，请稍后再试",
+  TIMEOUT: "故事生成时间有点久，请重新试一次",
+  PROVIDER_ERROR: "故事生成服务暂时不可用，请稍后再试",
+  INVALID_OUTPUT: "生成的故事未通过校验，请重新生成",
+};
+
 export function StoryCreator() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isGenerating) return;
+
     setError(null);
 
     const values = Object.fromEntries(new FormData(event.currentTarget));
@@ -26,12 +40,37 @@ export function StoryCreator() {
       return;
     }
 
+    setIsGenerating(true);
+
     try {
-      const story = generateMockStory(result.data);
-      saveBrowserStorySession(story);
+      const response = await fetch("/api/stories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result.data),
+      });
+      const body: unknown = await response.json();
+
+      if (!response.ok) {
+        const errorResult = storyGenerationErrorResponseSchema.safeParse(body);
+        const message = errorResult.success
+          ? errorMessageByCode[errorResult.data.error.code]
+          : errorMessageByCode.PROVIDER_ERROR;
+        setError(message);
+        return;
+      }
+
+      const storyResult = branchStorySchema.safeParse(body);
+      if (!storyResult.success) {
+        setError(errorMessageByCode.INVALID_OUTPUT);
+        return;
+      }
+
+      saveBrowserStorySession(storyResult.data);
       router.push("/play");
     } catch {
-      setError("故事暂时无法生成，请稍后再试");
+      setError(errorMessageByCode.PROVIDER_ERROR);
+    } finally {
+      setIsGenerating(false);
     }
   }
 
@@ -88,10 +127,11 @@ export function StoryCreator() {
       ) : null}
 
       <button
-        className="w-full rounded-xl bg-amber-200 px-6 py-3.5 font-semibold text-slate-950 transition hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-200"
+        className="w-full rounded-xl bg-amber-200 px-6 py-3.5 font-semibold text-slate-950 transition hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-200 disabled:cursor-wait disabled:opacity-60"
+        disabled={isGenerating}
         type="submit"
       >
-        生成故事
+        {isGenerating ? "正在生成故事…" : "生成故事"}
       </button>
     </form>
   );
