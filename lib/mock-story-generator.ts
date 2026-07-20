@@ -4,11 +4,30 @@ import {
   type BranchStory,
   type StoryInput,
 } from "./story";
-import type { StoryGenerator } from "./story-generator";
+import {
+  createStoryGenerationContext,
+  type StoryGenerationContext,
+  type StoryGenerationResult,
+  type StoryGenerator,
+} from "./story-generator";
+
+export const MOCK_STORY_PROMPT_VERSION = "mock-v1";
 
 export class MockStoryGenerator implements StoryGenerator {
-  async generate(input: StoryInput): Promise<BranchStory> {
-    return generateMockStory(input);
+  async generate(
+    input: StoryInput,
+    context: StoryGenerationContext = createStoryGenerationContext(),
+  ): Promise<StoryGenerationResult> {
+    return {
+      story: generateMockStory(input),
+      metadata: {
+        requestId: context.requestId,
+        source: "mock",
+        fallbackUsed: false,
+        attemptCount: 1,
+        fallbackReason: null,
+      },
+    };
   }
 }
 

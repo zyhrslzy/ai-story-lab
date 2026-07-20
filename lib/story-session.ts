@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import { branchStorySchema, type BranchStory } from "./story";
+import {
+  storyGenerationMetadataSchema,
+  type StoryGenerationMetadata,
+} from "./story-generator";
 
 export const STORY_SESSION_KEY = "ai-story-lab.session.v1";
 const browserSessionListeners = new Set<() => void>();
@@ -9,6 +13,7 @@ export const storySessionSchema = z
   .object({
     story: branchStorySchema,
     currentNodeId: z.string().min(1),
+    generation: storyGenerationMetadataSchema.optional(),
   })
   .superRefine((session, context) => {
     if (!session.story.nodes.some((node) => node.id === session.currentNodeId)) {
@@ -46,8 +51,9 @@ export function saveStorySession(
   storage: StoryStorage,
   story: BranchStory,
   currentNodeId = story.startNodeId,
+  generation?: StoryGenerationMetadata,
 ): StorySession {
-  const session = storySessionSchema.parse({ story, currentNodeId });
+  const session = storySessionSchema.parse({ story, currentNodeId, generation });
   storage.setItem(STORY_SESSION_KEY, serializeStorySession(session));
   return session;
 }
@@ -67,8 +73,9 @@ function notifyBrowserSessionChange(): void {
 export function saveBrowserStorySession(
   story: BranchStory,
   currentNodeId = story.startNodeId,
+  generation?: StoryGenerationMetadata,
 ): StorySession {
-  const session = saveStorySession(window.localStorage, story, currentNodeId);
+  const session = saveStorySession(window.localStorage, story, currentNodeId, generation);
   notifyBrowserSessionChange();
   return session;
 }

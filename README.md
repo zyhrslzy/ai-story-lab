@@ -37,9 +37,12 @@ cp .env.example .env.local
 STORY_GENERATOR_MODE=ai
 OPENAI_API_KEY=your_api_key
 OPENAI_MODEL=gpt-5.6-terra
+STORY_GENERATOR_FALLBACK=mock
 ```
 
 API Key 只由服务端读取。缺少 Key 不影响项目启动；在 AI 模式提交生成请求时会显示配置错误。
+
+AI 输出依次经过 JSON 解析、Zod 结构校验和故事图规则校验。可恢复错误最多自动重试一次，两次请求共享不超过 15 秒的总等待预算。默认在重试失败后加载带来源标记的 Mock 示例故事；设置 `STORY_GENERATOR_FALLBACK=none` 可关闭降级并直接返回安全错误。降级时游玩页会明确提示，不会伪装成 AI 生成成功。
 
 ## 验证命令
 
@@ -61,7 +64,7 @@ npm run test:watch
 ```text
 app/            Next.js 页面、布局、全局样式和服务端 API
 components/     创作表单与故事播放器
-lib/            Zod Schema、Mock/OpenAI 生成器、分支推进和本地会话
+lib/            Zod Schema、故事图校验、生成器、可观测性、分支推进和本地会话
 docs/           产品定义、决策和 AI 输出评测标准
 public/         后续使用的预制静态素材
 AGENTS.md       项目范围与开发约束

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { branchStorySchema } from "@/lib/story";
+import { storyGenerationResultSchema } from "@/lib/story-generator";
 
 import { POST } from "./route";
 
@@ -24,37 +24,53 @@ function storyRequest(body: unknown) {
 describe("POST /api/stories", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("uses Mock mode by default and returns a valid story", async () => {
     vi.stubEnv("STORY_GENERATOR_MODE", "");
     vi.stubEnv("OPENAI_API_KEY", "");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
 
     const response = await POST(storyRequest(validInput));
     const body: unknown = await response.json();
 
     expect(response.status).toBe(200);
-    expect(branchStorySchema.safeParse(body).success).toBe(true);
+    expect(storyGenerationResultSchema.safeParse(body).success).toBe(true);
+    expect(body).toMatchObject({
+      metadata: { source: "mock", fallbackUsed: false },
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("rejects invalid request input", async () => {
     const response = await POST(storyRequest({ ...validInput, theme: "" }));
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({
-      error: { code: "INVALID_INPUT" },
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "INVALID_INPUT",
+        message: "请检查故事设定后再试",
+        requestId: expect.any(String),
+      },
     });
   });
 
   it("returns a stable configuration error when AI mode has no key", async () => {
     vi.stubEnv("STORY_GENERATOR_MODE", "ai");
     vi.stubEnv("OPENAI_API_KEY", "");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
 
     const response = await POST(storyRequest(validInput));
 
     expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({
-      error: { code: "NOT_CONFIGURED" },
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "NOT_CONFIGURED",
+        message: "AI 故事生成暂未配置，请稍后再试",
+        requestId: expect.any(String),
+      },
     });
   });
 });

@@ -1,36 +1,32 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { saveBrowserStorySession } from "@/lib/story-session";
-import { branchStorySchema, storyInputSchema } from "@/lib/story";
+import { storyInputSchema } from "@/lib/story";
 import {
+  safeErrorMessageByCode,
   storyGenerationErrorResponseSchema,
-  type StoryGenerationErrorCode,
+  storyGenerationResultSchema,
 } from "@/lib/story-generator";
 
 const fieldClassName =
   "mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-amber-300 focus:ring-2 focus:ring-amber-300/20";
 
-const errorMessageByCode: Record<StoryGenerationErrorCode, string> = {
-  INVALID_INPUT: "请检查故事设定后再试",
-  NOT_CONFIGURED: "AI 故事生成暂未配置，请稍后再试",
-  TIMEOUT: "故事生成时间有点久，请重新试一次",
-  PROVIDER_ERROR: "故事生成服务暂时不可用，请稍后再试",
-  INVALID_OUTPUT: "生成的故事未通过校验，请重新生成",
-};
-
 export function StoryCreator() {
   const router = useRouter();
+  const generationLock = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [hasFailed, setHasFailed] = useState(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isGenerating) return;
+    if (generationLock.current) return;
 
     setError(null);
+    setHasFailed(false);
 
     const values = Object.fromEntries(new FormData(event.currentTarget));
     const result = storyInputSchema.safeParse(values);
@@ -40,6 +36,7 @@ export function StoryCreator() {
       return;
     }
 
+    generationLock.current = true;
     setIsGenerating(true);
 
     try {
@@ -53,23 +50,31 @@ export function StoryCreator() {
       if (!response.ok) {
         const errorResult = storyGenerationErrorResponseSchema.safeParse(body);
         const message = errorResult.success
-          ? errorMessageByCode[errorResult.data.error.code]
-          : errorMessageByCode.PROVIDER_ERROR;
+          ? errorResult.data.error.message
+          : safeErrorMessageByCode.UNKNOWN_ERROR;
         setError(message);
+        setHasFailed(true);
         return;
       }
 
-      const storyResult = branchStorySchema.safeParse(body);
-      if (!storyResult.success) {
-        setError(errorMessageByCode.INVALID_OUTPUT);
+      const generationResult = storyGenerationResultSchema.safeParse(body);
+      if (!generationResult.success) {
+        setError(safeErrorMessageByCode.SCHEMA_VALIDATION_ERROR);
+        setHasFailed(true);
         return;
       }
 
-      saveBrowserStorySession(storyResult.data);
+      saveBrowserStorySession(
+        generationResult.data.story,
+        generationResult.data.story.startNodeId,
+        generationResult.data.metadata,
+      );
       router.push("/play");
     } catch {
-      setError(errorMessageByCode.PROVIDER_ERROR);
+      setError(safeErrorMessageByCode.NETWORK_ERROR);
+      setHasFailed(true);
     } finally {
+      generationLock.current = false;
       setIsGenerating(false);
     }
   }
@@ -131,7 +136,7 @@ export function StoryCreator() {
         disabled={isGenerating}
         type="submit"
       >
-        {isGenerating ? "正在生成故事…" : "生成故事"}
+        {isGenerating ? "正在生成故事…" : hasFailed ? "重新生成" : "生成故事"}
       </button>
     </form>
   );

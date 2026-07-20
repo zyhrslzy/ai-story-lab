@@ -7,7 +7,12 @@ import {
   createStoryGeneratorFromEnvironment,
 } from "./ai-story-generator";
 import { MockStoryGenerator, generateMockStory } from "./mock-story-generator";
+import {
+  ObservedStoryGenerator,
+  type StoryGenerationRecord,
+} from "./story-generation-observability";
 import { branchStorySchema, type StoryInput } from "./story";
+import { StoryGenerationError } from "./story-generator";
 
 const input: StoryInput = {
   theme: "遗忘与重逢",
@@ -16,72 +21,151 @@ const input: StoryInput = {
   storyStyle: "温柔治愈",
 };
 
+function validRawStory() {
+  return JSON.stringify(generateMockStory(input));
+}
+
 describe("story generator contract", () => {
-  it("MockStoryGenerator returns a valid BranchStory", async () => {
-    const story = await new MockStoryGenerator().generate(input);
-
-    expect(branchStorySchema.safeParse(story).success).toBe(true);
-  });
-
-  it("AIStoryGenerator returns a valid BranchStory", async () => {
-    const generator = new AIStoryGenerator({
-      requestStory: async (requestInput) => generateMockStory(requestInput),
+  it("MockStoryGenerator returns a marked valid story", async () => {
+    const result = await new MockStoryGenerator().generate(input, {
+      requestId: "mock-request",
     });
 
-    const story = await generator.generate(input);
+    expect(branchStorySchema.safeParse(result.story).success).toBe(true);
+    expect(result.metadata).toEqual({
+      requestId: "mock-request",
+      source: "mock",
+      fallbackUsed: false,
+      attemptCount: 1,
+      fallbackReason: null,
+    });
+  });
 
-    expect(branchStorySchema.safeParse(story).success).toBe(true);
+  it("AIStoryGenerator returns a marked valid story", async () => {
+    const generator = new AIStoryGenerator({
+      requestStory: async () => validRawStory(),
+    });
+
+    const result = await generator.generate(input, { requestId: "ai-request" });
+
+    expect(branchStorySchema.safeParse(result.story).success).toBe(true);
+    expect(result.metadata).toMatchObject({
+      requestId: "ai-request",
+      source: "openai",
+      fallbackUsed: false,
+      attemptCount: 1,
+    });
   });
 });
 
-describe("AIStoryGenerator errors", () => {
+describe("AIStoryGenerator retry and fallback", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
-  it("rejects invalid model output", async () => {
-    const generator = new AIStoryGenerator({
-      requestStory: async () => ({ title: "不完整的故事" }),
+  it("retries invalid JSON once and succeeds", async () => {
+    const requestStory = vi
+      .fn()
+      .mockResolvedValueOnce("not-json")
+      .mockResolvedValueOnce(validRawStory());
+    const generator = new AIStoryGenerator({ requestStory });
+
+    const result = await generator.generate(input);
+
+    expect(requestStory).toHaveBeenCalledTimes(2);
+    expect(requestStory.mock.calls[1]?.[1]).toMatchObject({
+      attempt: 2,
+      previousErrorCode: "INVALID_JSON",
     });
+    expect(result.metadata).toMatchObject({
+      source: "openai",
+      fallbackUsed: false,
+      attemptCount: 2,
+    });
+  });
+
+  it("retries a recoverable network error", async () => {
+    const requestStory = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new StoryGenerationError("NETWORK_ERROR", { retryable: true }),
+      )
+      .mockResolvedValueOnce(validRawStory());
+    const generator = new AIStoryGenerator({ requestStory });
+
+    const result = await generator.generate(input);
+
+    expect(requestStory).toHaveBeenCalledTimes(2);
+    expect(result.metadata.attemptCount).toBe(2);
+  });
+
+  it("does not retry unknown errors", async () => {
+    const requestStory = vi.fn().mockRejectedValue(new Error("unexpected"));
+    const generator = new AIStoryGenerator({ requestStory });
 
     await expect(generator.generate(input)).rejects.toMatchObject({
-      code: "INVALID_OUTPUT",
+      code: "UNKNOWN_ERROR",
+      attemptCount: 1,
     });
+    expect(requestStory).toHaveBeenCalledTimes(1);
   });
 
-  it("maps provider failures to a recognizable error", async () => {
-    const generator = new AIStoryGenerator({
-      requestStory: async () => {
-        throw new Error("upstream unavailable");
-      },
-    });
-
-    await expect(generator.generate(input)).rejects.toMatchObject({
-      code: "PROVIDER_ERROR",
-    });
-  });
-
-  it("aborts and rejects requests that exceed the timeout", async () => {
+  it("retries timeouts once and then returns a timeout error", async () => {
     vi.useFakeTimers();
-    let requestSignal: AbortSignal | undefined;
+    const signals: AbortSignal[] = [];
     const generator = new AIStoryGenerator({
-      timeoutMs: 20,
-      requestStory: async (_, signal) => {
-        requestSignal = signal;
+      attemptTimeoutMs: 20,
+      totalBudgetMs: 100,
+      requestStory: async (_, { signal }) => {
+        signals.push(signal);
         return new Promise(() => undefined);
       },
     });
 
     const rejection = expect(generator.generate(input)).rejects.toMatchObject({
       code: "TIMEOUT",
+      attemptCount: 2,
     });
-    await vi.advanceTimersByTimeAsync(20);
+    await vi.advanceTimersByTimeAsync(40);
 
     await rejection;
-    expect(requestSignal?.aborted).toBe(true);
+    expect(signals).toHaveLength(2);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 
-  it("rejects invalid input before calling the provider", async () => {
+  it("falls back to Mock after two recoverable failures", async () => {
+    const requestStory = vi.fn().mockResolvedValue("not-json");
+    const generator = new AIStoryGenerator({
+      requestStory,
+      fallbackGenerator: new MockStoryGenerator(),
+    });
+
+    const result = await generator.generate(input, { requestId: "fallback-request" });
+
+    expect(requestStory).toHaveBeenCalledTimes(2);
+    expect(branchStorySchema.safeParse(result.story).success).toBe(true);
+    expect(result.metadata).toEqual({
+      requestId: "fallback-request",
+      source: "mock",
+      fallbackUsed: true,
+      attemptCount: 2,
+      fallbackReason: "INVALID_JSON",
+    });
+  });
+
+  it("returns the final error when fallback is disabled", async () => {
+    const requestStory = vi.fn().mockResolvedValue("not-json");
+    const generator = new AIStoryGenerator({ requestStory });
+
+    await expect(generator.generate(input)).rejects.toMatchObject({
+      code: "INVALID_JSON",
+      attemptCount: 2,
+    });
+    expect(requestStory).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects invalid input before calling the model", async () => {
     const requestStory = vi.fn();
     const generator = new AIStoryGenerator({ requestStory });
 
@@ -92,16 +176,69 @@ describe("AIStoryGenerator errors", () => {
   });
 });
 
-describe("generator environment selection", () => {
-  it("defaults to Mock mode without an API key", () => {
-    const generator = createStoryGeneratorFromEnvironment({});
+describe("generator environment and observability", () => {
+  it("defaults to Mock mode and records only safe structured fields", async () => {
+    const records: StoryGenerationRecord[] = [];
+    const generator = createStoryGeneratorFromEnvironment(
+      {},
+      { logger: { record: (entry) => records.push(entry) } },
+    );
 
-    expect(generator).toBeInstanceOf(MockStoryGenerator);
+    const result = await generator.generate(input, { requestId: "observed-request" });
+
+    expect(result.metadata.source).toBe("mock");
+    expect(records).toEqual([
+      expect.objectContaining({
+        requestId: "observed-request",
+        generatorType: "mock",
+        promptVersion: "mock-v1",
+        success: true,
+        retried: false,
+        fallbackUsed: false,
+        finalErrorType: null,
+      }),
+    ]);
+    expect(JSON.stringify(records)).not.toContain(input.theme);
   });
 
-  it("reports missing configuration only when AI mode is selected", () => {
-    expect(() =>
-      createStoryGeneratorFromEnvironment({ STORY_GENERATOR_MODE: "ai" }),
-    ).toThrow(expect.objectContaining({ code: "NOT_CONFIGURED" }));
+  it("does not create a real model client in the test environment", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const generator = createStoryGeneratorFromEnvironment({
+      NODE_ENV: "test",
+      STORY_GENERATOR_MODE: "ai",
+      OPENAI_API_KEY: "test-key-that-must-not-be-used",
+    });
+
+    await expect(generator.generate(input)).rejects.toMatchObject({
+      code: "NOT_CONFIGURED",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("records retry and fallback without logging story content", async () => {
+    const records: StoryGenerationRecord[] = [];
+    const inner = new AIStoryGenerator({
+      requestStory: async () => "not-json",
+      fallbackGenerator: new MockStoryGenerator(),
+    });
+    const generator = new ObservedStoryGenerator({
+      generator: inner,
+      generatorType: "openai",
+      promptVersion: "story-v1",
+      logger: { record: (entry) => records.push(entry) },
+    });
+
+    const result = await generator.generate(input, { requestId: "fallback-log" });
+
+    expect(result.metadata.fallbackUsed).toBe(true);
+    expect(records).toEqual([
+      expect.objectContaining({
+        success: true,
+        retried: true,
+        fallbackUsed: true,
+        finalErrorType: "INVALID_JSON",
+      }),
+    ]);
+    expect(JSON.stringify(records)).not.toContain(input.protagonistName);
   });
 });

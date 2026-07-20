@@ -46,7 +46,7 @@ export function StoryPlayer() {
   function choose(choiceId: string) {
     if (!session) return;
     const nextNode = chooseStoryPath(session.story, session.currentNodeId, choiceId);
-    saveBrowserStorySession(session.story, nextNode.id);
+    saveBrowserStorySession(session.story, nextNode.id, session.generation);
   }
 
   function createAgain() {
@@ -56,6 +56,14 @@ export function StoryPlayer() {
 
   return (
     <article className="mx-auto w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-950/80 p-6 shadow-xl sm:p-8">
+      {session.generation?.fallbackUsed ? (
+        <p
+          className="mb-5 rounded-xl border border-amber-300/20 bg-amber-200/10 px-4 py-3 text-sm text-amber-100"
+          role="status"
+        >
+          AI 暂时不可用，已为你加载示例故事。
+        </p>
+      ) : null}
       <header className="border-b border-slate-800 pb-5">
         <p className="text-xs font-semibold tracking-[0.24em] text-amber-200 uppercase">
           {currentNode.endingType ? endingLabels[currentNode.endingType] : session.story.style}
